@@ -325,3 +325,215 @@ HAL库是ST公司目前主力推荐的开发方式，HAL（Hardware Abstraction 
 - stm32f1xx_it.c
 4.主程序调用HAL_Init。实现`assert_failed()`、配置系统时钟，初始化指定外设
 - main.c
+
+
+
+## 认知第一阶段的实践
+
+### HAL数据类型
+
+与标准库类似，HAL库使用结构体来进行相关外设的配置
+
+每一个 HAL 固件驱动程序都会包含有如下三种类型的数据结构：
+
+- **外设操作结构体：** PPP_HandleTypeDef 是HAL驱动程序中主要的实现结构，其用于配置外设，注册和嵌入式外设相关的结构体与变量，例如usart这一外设的`USART_HandleTypeDef`结构体
+```c
+typedef struct {
+    USART_TypeDef *Instance;               /* USART 寄存器基地址 */
+    USART_InitTypeDef Init;                /* USART 通信参数 */
+    uint8_t *pTxBuffPtr;                   /* 指向 USART Tx 发送缓冲区的指针 */
+    uint16_t TxXferSize;                   /* USART 发送大小 */
+    __IO uint16_t TxXferCount;             /* USART 发送计数器 */
+    uint8_t *pRxBuffPtr;                   /* 指向 USART Rx 传输缓冲区的指针 */
+    uint16_t RxXferSize;                   /* USART Rx 传输大小 */
+    __IO uint16_t RxXferCount;             /* USART Rx 传输计数器 */
+    DMA_HandleTypeDef *hdmatx;             /* USART Tx 的 DMA 处理参数 */
+    DMA_HandleTypeDef *hdmarx;             /* USART Rx 的 DMA 处理参数 */
+    HAL_LockTypeDef Lock;                  /* 对象锁定 */
+    __IO HAL_USART_StateTypeDef State;     /* USART 通信状态 */
+    __IO HAL_USART_ErrorTypeDef ErrorCode; /* USART 错误代码 */
+} USART_HandleTypeDef;
+```
+可以看到，上诉代码能够配置USART通信参数，缓冲区参数，DMA相关参数，基本涵盖与USART相关的操作
+
+- **初始化与配置结构体：** PPP_InitTypeDef结构体定义在通用固件驱动程序的`.h`文件中，其用于初始化外设相关参数，还是以USART为例
+
+```c
+typedef struct {
+    uint32_t BaudRate;     /* 配置 UART 通信波特率 */
+    uint32_t WordLength;   /* 指定接收或者发送数据的长度 */
+    uint32_t StopBits;     /* 指定传输的停止位数 */
+    uint32_t Parity;       /* 指定校验模式 */
+    uint32_t Mode;         /* 启用或者禁用收发模式 */
+    uint32_t HwFlowCtl;    /* 启用或者禁用硬件流控制模式 */
+    uint32_t OverSampling; /* 启用或者禁用过采样，以达到更高的速度（可以达到 fPCLK/8）*/
+} UART_InitTypeDef;
+
+```
+
+可以看到，上诉代码初始化串口通信的波特率，数据长度，停止位数，校验模式等参数
+
+除此之外，配置结构体 HAL_PPP_Config 用于初始化子模块或者子实例，例如下面 ADC 模数转换器外设示例：
+
+`HAL_ADC_ConfigChannel (ADC_HandleTypeDef* hadc, ADC_ChannelConfTypeDef* sConfig)`
+
+- 指定流程结构体
+
+
+指定流程结构体：HAL_PPP_Process 用于通用 API 当中的特定流程，通常被定义在通用固件驱动程序的 .h 头文件当中；
+HAL_PPP_Process (PPP_HandleTypeDef* hadc,PPP_ProcessConfig* sConfig)
+HAL 库 API 的分类
+
+### HAL库API的分类
+
+HAL固件库的API可以被划分为**通用**与**扩展**两种类型
+
+- 通用API：适用于所有STM32微控制器，主要出现在HAL固件库的**通用**驱动程序文件当中
+
+以ADC外设的通用API为例
+
+```c
+HAL_StatusTypeDef HAL_ADC_Init(ADC_HandleTypeDef* hadc);
+HAL_StatusTypeDef HAL_ADC_DeInit(ADC_HandleTypeDef* hadc);
+HAL_StatusTypeDef HAL_ADC_Start(ADC_HandleTypeDef* hadc);
+HAL_StatusTypeDef HAL_ADC_Stop(ADC_HandleTypeDef* hadc);
+HAL_StatusTypeDef HAL_ADC_Start_IT(ADC_HandleTypeDef* hadc);
+HAL_StatusTypeDef HAL_ADC_Stop_IT(ADC_HandleTypeDef* hadc);
+void HAL_ADC_IRQHandler(ADC_HandleTypeDef* hadc)
+```
+
+在上述代码中，出现多个API，对应着ADC外设的通用操作，其输入参数为外设操作结构体变量，是之前HAL固件驱动程序所讲述的三种结构体类型之一
+
+- 扩展API：可以进一步划分为**指定系列**与**指定型号**两种类型，处于HAL固件库的**扩展**驱动程序源文件（`stm32f1xx_hal_ppp_ex.c/h`）当中
+
+一般而言只需要通用API即可，目前还未找到 需要拓展API的例子，若是之后找到例子可以在这里再做补充
+
+### HAL库驱动规范
+
+#### HAL API命名规则
+
+HAL固件库当中所使用的驱动程序命名规则如下所示
+
+<div align="center">
+
+|      | 通用 | 系列指定 | 具体型号指定 |
+| --- | --- | --- | --- |
+| 模块驱动文件名称 | `stm32f1xx_hal_ppp (c/h)` | stm32f1xx_hal_ppp_ex (c/h) | stm32f1xx_hal_ppp_ex (c/h) |
+| 函数名称 | HAL_PPP_MODULE | HAL_PPP_MODULE | HAL_PPP_MODULE |
+| 头文件名称 | HAL_PPP_Function / HAL_PPP_FeatureFunction_MODE | HAL_PPPEx__Function / HAL_PPPEx_FeatureFunction_MODE | HAL_PPPEx_Function / HAL_PPPEx_FeatureFunction_MODE |
+| 指针名称 | PPP_HandleTypeDef | NA | NA |
+| 初始化结构体名称 | PPP_InitTypeDef | NA | PPP_InitTypeDef |
+| 枚举名称 | HAL_PPP_StructnameTypeDef | NA | NA |
+
+</div>
+
+对于上述表格所描述的驱动程序命名规则，需要特别注意以下几个事项
+
+- PPP前缀指代的是外设的功能模式，而非外设本身，因此，使用USART串口时，该前缀可以是`USART`、`IRDA`、`UART`、`SMARTCARD`; 这很容易理解，因为无论是外设初始化还是外设操作所对应的操作对象都不是物理意义上的外设，而是在逻辑意义上外设的某一功能模式
+- 一个源文件当中定义的常量，就定义在该源文件内部，而多个源文件所共用的常量则定义在头文件当中; 除外设驱动的函数参数以外，所有常量都需要大写
+- `typedef`类型的变量名称都应当以`_TypeDef`作为后缀
+- HAL固件库认为**寄存器**属于常量, 大多数情况下常量名称是大写的，并且使用于官方参考手册当中相同的首字母缩写
+- 外设寄存器被声明在`stm32f1xx_hal_PPP.h`头文件的`PPP_TypeDef`，例如`ADC_TypeDef`
+- 外设函数的名称以`HAL_`作为前缀，然后是相应外设的首字母缩写（大写），然后再跟上一条下划线，接下来每一个首字母都大写. e.g. `HAL_UART_Transmit()`
+- 包含指定PPP外设初始化参数的结构体名称被命名为`PPP_InitTypeDef`, e.g `ADC_InitTypeDef`
+- 包含指定PPP外设配置参数的结构体被命名为`PPP_xxxxConfTypeDef`, 例如`ADC_ChannelConfTypeDef`
+- 外设指针结构体被命名为`PPP_HandleTypeDef`，例如`DMA_HandleTypeDef`
+- 根据`PPP_InitTypeDef`当中的参数，用于初始化PPP外设的函数被命名为`HAL_PPP_Init`，例如`HAL_TIM_Init()`
+- 采用默认值重置**PPP**外设寄存器的函数被命名为`HAL_PPP_DeInit`, 例如`HAL_TIM_DeInit()`
+- 后缀`MODE`是指处理模式（轮询、中断、DMA），例如在本地资源以外使用DMA时，就应当调用`HAL_PPP_Funtion_DMA()`函数
+- 前缀`Feature`是指新的特性，例如`HAL_ADCEx_InjectedStart()`表示ADC开始注入通道
+
+#### HAL通用命名规则
+
+对于共有的系统外设，无需使用指针或者实例对象，这个规则适用于GPIO、SYSTICK、NVIC、RCC、FLASH等外设，例如函数`HAL_GPIO_Init()`只需要GPIO的地址及其配置参数
+
+```c
+HAL_StatusTypeDef HAL_GPIO_Init(GPIO_TypeDef* GPIOx, GPIO_InitTypeDef* Init) {
+}
+
+```
+
+这很容易理解，如果不是通用外设，就需要做一些配置，无法直接定义GPIOx
+
+每个外设驱动程序当中都定义有处理中断和特定时钟配置的宏，这些宏会被导出到外设驱动的**头文件**，以便于拓展文件使用，这些用于处理中断和特定时钟配置的宏如下所示
+
+<div align="center">
+
+| 宏定义 | 功能描述 |
+| --- | --- |
+| __HAL_PPP_ENABLE_IT(__HANDLE__, __INTERRUPT__) | 使能一个特定的外设中断 |
+
+
+
+</div>
+
+### SystemClock_Config
+
+系统时钟配置
+
+单纯的看代码并不能搞懂，得结合时钟树来看
+
+![20220822183536](https://cdn.jsdelivr.net/gh/ccxc-najiu/imageBed@main/note/images20220822183536.png)
+
+其中用到了HSE，故有代码
+
+```c
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+```
+然后未使用PLL分频器输出作为sysClk
+
+故不开启PLL
+```c
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+```
+
+以上就是RCC_OscInitStruct的内容，其用于初始化SysCLK之前的时钟配置选项
+
+接下来是RCC_ClkInitStruct的配置，其中最重要的语句是
+
+```c
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSE;
+```
+其表示SysCLK的时钟源是HSE （看时钟树，另外两个选择是HSI与PLL输出）
+
+然后SysCLK再经过分频得到AHB, APB1, APB2, 下面的代码配置其分频倍率
+
+```c
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+```
+总体代码如下
+```c
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSE;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+```
